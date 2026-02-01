@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neon Heart - A'aliya</title>
+
+  <style>
+    body {
+      background-color: #000;
+      margin: 0;
+      overflow: hidden;
+      background-repeat: no-repeat;
+      touch-action: none; /* Prevents accidental zooming on mobile */
+    }
+    
+    canvas {
+      display: block;
+    }
+
+    .love-text {
+      position: fixed;
+      bottom: 10%;
+      width: 100%;
+      text-align: center;
+      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+      font-size: 32px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: #ff2f92;
+      text-shadow:
+        0 0 8px rgba(255, 47, 146, 0.8),
+        0 0 16px rgba(255, 47, 146, 0.7),
+        0 0 32px rgba(32, 160, 255, 0.6);
+      animation: glowPulse 2.5s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .heart-name {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+      font-size: 42px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: #ff2f92;
+      text-align: center;
+      text-shadow:
+        0 0 10px rgba(255, 47, 146, 0.9),
+        0 0 20px rgba(255, 47, 146, 0.7),
+        0 0 40px rgba(32, 160, 255, 0.6);
+      animation: namePulse 2.8s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0.7; transform: scale(0.98); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes namePulse {
+      0%, 100% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.8; }
+      50% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+    }
+
+    /* Mobile Optimization */
+    @media (max-width: 600px) {
+      .love-text {
+        font-size: 24px;
+        bottom: 15%;
+      }
+      .heart-name {
+        font-size: 30px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="love-text">I love uㅤꨄ︎</div>
+  <div class="heart-name">♡𝒜’𝒜𝐿𝐼𝒴𝒜♡</div>
+
+  <script>
+    var canvas = document.getElementById("canvas");
+    var gl = canvas.getContext("webgl");
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    if (!gl) {
+      console.error("WebGL not supported");
+    }
+
+    var time = 0.0;
+
+    var vertexSource = `
+      attribute vec2 position;
+      void main() {
+        gl_Position = vec4(position, 0.0, 1.0);
+      }
+    `;
+
+    var fragmentSource = `
+      precision highp float;
+      uniform float width;
+      uniform float height;
+      uniform float time;
+
+      #define POINT_COUNT 8
+      vec2 points[POINT_COUNT];
+      const float speed = -0.5;
+      const float len = 0.25;
+      float intensity = 0.9;
+      float radius = 0.015;
+
+      float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C){    
+        vec2 a = B - A;
+        vec2 b = A - 2.0*B + C;
+        vec2 c = a * 2.0;
+        vec2 d = A - pos;
+        float kk = 1.0 / dot(b,b);
+        float kx = kk * dot(a,b);
+        float ky = kk * (2.0*dot(a,a)+dot(d,b)) / 3.0;
+        float kz = kk * dot(d,a);      
+        float res = 0.0;
+        float p = ky - kx*kx;
+        float p3 = p*p*p;
+        float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+        float h = q*q + 4.0*p3;
+        if(h >= 0.0){ 
+          h = sqrt(h);
+          vec2 x = (vec2(h, -h) - q) / 2.0;
+          vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+          float t = uv.x + uv.y - kx;
+          t = clamp( t, 0.0, 1.0 );
+          res = length(d + (c + b*t)*t);
+        } else {
+          float z = sqrt(-p);
+          float v = acos( q/(p*z*2.0) ) / 3.0;
+          float m = cos(v);
+          float n = sin(v)*1.732050808;
+          vec3 t = clamp(vec3(m + m, -n - m, n - m) * z - kx, 0.0, 1.0);
+          res = sqrt(min(dot(d+(c+b*t.x)*t.x,d+(c+b*t.x)*t.x), min(dot(d+(c+b*t.y)*t.y,d+(c+b*t.y)*t.y), dot(d+(c+b*t.z)*t.z,d+(c+b*t.z)*t.z))));
+        }
+        return res;
+      }
+
+      vec2 getHeartPosition(float t){
+        return vec2(16.0 * pow(sin(t), 3.0), -(13.0 * cos(t) - 5.0 * cos(2.0*t) - 2.0 * cos(3.0*t) - cos(4.0*t)));
+      }
+
+      float getSegment(float t, vec2 pos, float offset, float scale){
+        for(int i = 0; i < POINT_COUNT; i++){
+          points[i] = getHeartPosition(offset + float(i)*len + fract(speed * t) * 6.28);
+        }
+        vec2 c = (points[0] + points[1]) / 2.0;
+        float dist = 10000.0;
+        for(int i = 0; i < POINT_COUNT-1; i++){
+          vec2 c_prev = c;
+          c = (points[i] + points[i+1]) / 2.0;
+          dist = min(dist, sdBezier(pos, scale * c_prev, scale * points[i], scale * c));
+        }
+        return max(0.0, dist);
+      }
+
+      void main(){
+        vec2 resolution = vec2(width, height);
+        vec2 uv = gl_FragCoord.xy/resolution.xy;
+        vec2 pos = vec2(0.5) - uv;
+        pos.y /= (width/height);
+        pos.y += 0.03; 
+        
+        // Mobile Optimized Scaling
+        float scale = 0.000012 * min(width, height);
+
+        float dist = getSegment(time, pos, 0.0, scale);
+        vec3 col = (pow(radius/dist, intensity)) * vec3(0.94,0.14,0.4);
+        
+        float dist2 = getSegment(time, pos, 3.4, scale);
+        col += (pow(radius/dist2, intensity)) * vec3(0.2,0.6,1.0);
+
+        col = 1.0 - exp(-col);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+
+    function compile(source, type) {
+      var s = gl.createShader(type);
+      gl.shaderSource(s, source);
+      gl.compileShader(s);
+      return s;
+    }
+
+    var program = gl.createProgram();
+    gl.attachShader(program, compile(vertexSource, gl.VERTEX_SHADER));
+    gl.attachShader(program, compile(fragmentSource, gl.FRAGMENT_SHADER));
+    gl.linkProgram(program);
+    gl.useProgram(program);
+
+    var vertexData = new Float32Array([-1, 1, -1, -1, 1, 1, 1, -1]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+
+    var pos = gl.getAttribLocation(program, "position");
+    gl.enableVertexAttribArray(pos);
+    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+    var timeHandle = gl.getUniformLocation(program, "time");
+    var widthHandle = gl.getUniformLocation(program, "width");
+    var heightHandle = gl.getUniformLocation(program, "height");
+
+    var lastFrame = Date.now();
+    function draw() {
+      var now = Date.now();
+      time += (now - lastFrame) / 1000;
+      lastFrame = now;
+
+      gl.uniform1f(timeHandle, time);
+      gl.uniform1f(widthHandle, canvas.width);
+      gl.uniform1f(heightHandle, canvas.height);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      requestAnimationFrame(draw);
+    }
+    draw();
+  </script>
+</body>
+</html>
